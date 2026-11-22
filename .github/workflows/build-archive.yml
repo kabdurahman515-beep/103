@@ -182,6 +182,110 @@ jobs:
           path: shared_app/build/windows/x64/runner/Release/
           if-no-files-found: error
 
+  windows7_legacy:
+    name: Windows 7 x64 Legacy Build
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract uploaded source ZIP
+        shell: pwsh
+        run: Expand-Archive -LiteralPath Universal_Device_Agent_Railway_Connected.zip -DestinationPath . -Force
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.6'
+          channel: stable
+          cache: true
+      - name: Prepare Windows 7 compatible Dart and Flutter dependencies
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          p = Path("shared_app/pubspec.yaml")
+          text = p.read_text(encoding="utf-8")
+          replacements = {
+              'sdk: ">=3.6.0 <4.0.0"': 'sdk: ">=3.3.0 <4.0.0"',
+              'flutter: ">=3.27.0"': 'flutter: ">=3.19.0"',
+              'flutter_secure_storage: ^9.2.2': 'flutter_secure_storage: 9.2.4',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f"Expected exactly one {old!r} in pubspec.yaml")
+              text = text.replace(old, new)
+          anchor = "dev_dependencies:\n"
+          if text.count(anchor) != 1:
+              raise SystemExit("Could not find dev_dependencies insertion point.")
+          text = text.replace(
+              anchor,
+              "dependency_overrides:\n"
+              "  flutter_secure_storage_windows: 3.1.2\n"
+              "  win32: 5.5.4\n\n"
+              + anchor,
+              1,
+          )
+          p.write_text(text, encoding="utf-8")
+          print("Pinned the Windows 7 build to the final Flutter/Dart-compatible dependency line.")
+          '@ | python -
+          @'
+          from pathlib import Path
+          p = Path("shared_app/lib/task_monitor/step_timeline.dart")
+          text = p.read_text(encoding="utf-8")
+          old = ".withValues(alpha: 0.5)"
+          if text.count(old) != 1:
+              raise SystemExit("Expected the single Flutter 3.27+ Color.withValues call.")
+          p.write_text(text.replace(old, ".withOpacity(0.5)"), encoding="utf-8")
+          '@ | python -
+          @'
+          from pathlib import Path
+          p = Path("shared_app/windows/runner/runner.exe.manifest")
+          p.write_text(
+              '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+            <application>
+              <windowsSettings>
+                <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+              </windowsSettings>
+            </application>
+          </assembly>
+          ''',
+              encoding="utf-8",
+          )
+          print("Applied the Windows 7-compatible DPI manifest.")
+          '@ | python -
+      - name: Generate Flutter 3.19 managed Windows files
+        shell: pwsh
+        run: |
+          $template = Join-Path $env:RUNNER_TEMP 'uda_windows7_template'
+          if (Test-Path $template) { Remove-Item $template -Recurse -Force }
+          flutter create --platforms=windows --org com.deviceagent --project-name shared_app $template
+          $sourceFlutter = Join-Path $template 'windows/flutter'
+          $targetFlutter = 'shared_app/windows/flutter'
+          if (!(Test-Path (Join-Path $sourceFlutter 'CMakeLists.txt'))) { throw 'Flutter 3.19 did not generate managed Windows CMake files.' }
+          if (Test-Path $targetFlutter) { Remove-Item $targetFlutter -Recurse -Force }
+          Copy-Item $sourceFlutter $targetFlutter -Recurse -Force
+      - name: Resolve dependencies and apply secure-storage Win32 compatibility
+        working-directory: shared_app
+        shell: pwsh
+        run: |
+          flutter pub get
+          if (!(Test-Path 'tool/ci/prepare_windows.ps1')) { throw 'Windows compatibility patch script missing from source ZIP.' }
+          powershell -NoProfile -ExecutionPolicy Bypass -File 'tool/ci/prepare_windows.ps1'
+      - name: Build Windows 7 x64 release bundle
+        working-directory: shared_app
+        env:
+          CONTROL_API_URL: ${{ vars.CONTROL_API_URL || 'https://102-production.up.railway.app' }}
+        shell: pwsh
+        run: |
+          flutter build windows --release --dart-define=CONTROL_API_URL="$env:CONTROL_API_URL"
+          $bundle = 'build/windows/x64/runner/Release'
+          if (!(Test-Path (Join-Path $bundle 'device_agent.exe'))) { throw 'device_agent.exe missing from legacy build.' }
+          if (!(Test-Path (Join-Path $bundle 'flutter_windows.dll'))) { throw 'flutter_windows.dll missing from legacy bundle.' }
+          if (!(Test-Path (Join-Path $bundle 'data/flutter_assets'))) { throw 'Flutter assets missing from legacy bundle.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Universal-Device-Agent-Windows7-x64-Legacy
+          path: shared_app/build/windows/x64/runner/Release/
+          if-no-files-found: error
+
   linux:
     name: Linux / ChromeOS Build
     runs-on: ubuntu-latest
