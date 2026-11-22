@@ -94,13 +94,11 @@ jobs:
           from pathlib import Path
           p = Path("shared_app/pubspec.yaml")
           text = p.read_text(encoding="utf-8")
-          updated, count = re.subn(
-              r"(?m)^(\\s*flutter_secure_storage:\\s*)\\^9\\.2\\.2(\\s*(?:#.*)?)$",
-              r"\\1^11.2.0\\2",
-              text,
-          )
-          if count != 1:
-              raise SystemExit(f"Expected one flutter_secure_storage ^9.2.2 dependency, found {count}")
+          old = "flutter_secure_storage: ^9.2.2"
+          new = "flutter_secure_storage: ^11.2.0"
+          if text.count(old) != 1:
+              raise SystemExit(f"Expected exactly one {old!r} dependency")
+          updated = text.replace(old, new)
           p.write_text(updated, encoding="utf-8")
           print(updated)
           '@ | python -
