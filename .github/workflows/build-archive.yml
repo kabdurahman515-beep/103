@@ -218,12 +218,21 @@ jobs:
               anchor,
               "dependency_overrides:\n"
               "  flutter_secure_storage_windows: 3.1.2\n"
-              "  win32: 5.5.4\n\n"
+              "  win32: 5.5.0\n\n"
               + anchor,
               1,
           )
           p.write_text(text, encoding="utf-8")
           print("Pinned the Windows 7 build to the final Flutter/Dart-compatible dependency line.")
+          '@ | python -
+          @'
+          from pathlib import Path
+          p = Path("shared_app/lib/theme/app_theme.dart")
+          text = p.read_text(encoding="utf-8")
+          if "CardThemeData(" not in text:
+              raise SystemExit("CardThemeData constructor not found; refusing an unsafe theme patch.")
+          p.write_text(text.replace("CardThemeData(", "CardTheme("), encoding="utf-8")
+          print("Patched CardThemeData to the Flutter 3.19 CardTheme API.")
           '@ | python -
           @'
           from pathlib import Path
