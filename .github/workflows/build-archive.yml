@@ -22,6 +22,7 @@ jobs:
           java-version: '17'
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.47.0'
           channel: stable
           cache: true
       - name: Verify source
@@ -64,6 +65,23 @@ jobs:
         run: |
           if (!(Test-Path 'shared_app/pubspec.yaml')) { throw 'shared_app/pubspec.yaml not found after ZIP extraction.' }
           if (!(Test-Path 'shared_app/windows/CMakeLists.txt')) { throw 'Custom Windows CMakeLists.txt is missing.' }
+      - name: Override incompatible Windows secure-storage plugin
+        shell: pwsh
+        run: |
+          @'
+          import re
+          from pathlib import Path
+          p = Path("shared_app/pubspec.yaml")
+          text = p.read_text(encoding="utf-8")
+          if "flutter_secure_storage_windows:" not in text:
+              match = re.search(r"(?m)^dependency_overrides:\s*$", text)
+              if match:
+                  text = text[:match.end()] + "\n  flutter_secure_storage_windows: ^4.2.0" + text[match.end():]
+              else:
+                  text = text.rstrip() + "\n\ndependency_overrides:\n  flutter_secure_storage_windows: ^4.2.0\n"
+              p.write_text(text, encoding="utf-8")
+          '@ | python -
+          Get-Content 'shared_app/pubspec.yaml'
       - name: Generate missing managed Windows CMake files safely
         shell: pwsh
         run: |
