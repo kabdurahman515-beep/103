@@ -45,9 +45,12 @@ def main() -> None:
         raise SystemExit("Could not safely replace the native pairing-code call")
     text = text.replace(
         "    final generated = _pairingCode;\n    final serverCode = _serverCodeController.text.trim();\n    // Server code diya ho to wahi bhejte hain; warna purana (legacy) flow.\n    final code = serverCode.isNotEmpty ? serverCode : generated;",
-        "    final serverCode = _serverCodeController.text.trim();\n    final String? code = serverCode.isEmpty ? null : serverCode;",
+        "    final serverCode = _serverCodeController.text.trim();\n    final code = serverCode;",
     )
-    text = text.replace("    if (code == null || _pairing) return;", "    if (_pairing) return;")
+    text = text.replace(
+        "    final name = _nameController.text.trim();\n    if (_pairing) return;",
+        "    final name = _nameController.text.trim();\n    if (_pairing) return;\n    if (code.isEmpty) {\n      setState(() => _error = 'Website se naya server pairing code le kar yahan enter karein');\n      return;\n    }",
+    )
     text = text.replace(
         """                    if (_pairingCode != null)
                       QrImageView(
@@ -59,7 +62,7 @@ def main() -> None:
                     Text('Pairing code: ${_pairingCode ?? '—'}',
                         style: Theme.of(context).textTheme.titleMedium),""",
         """                    const SizedBox(height: 16),
-                    Text('Server pairing code (optional unless required by server)',
+                    Text('Server pairing code (required)',
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.titleMedium),""",
     )
@@ -120,8 +123,8 @@ def main() -> None:
     main = ROOT / "lib/main.dart"
     replace_once(
         main,
-        "Future<void> _onPaired(String pairingCode, String deviceName) async {",
         "Future<void> _onPaired(String? pairingCode, String deviceName) async {",
+        "Future<void> _onPaired(String pairingCode, String deviceName) async {",
         "nullable pairing callback",
     )
 
