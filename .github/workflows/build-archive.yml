@@ -138,159 +138,19 @@ jobs:
       - name: Suppress deprecated MSVC experimental coroutine diagnostic
         shell: pwsh
         run: |
-          $cmake = 'shared_app/windows/CMakeLists.txt'
-          if (!(Test-Path $cmake)) { throw 'Windows root CMakeLists.txt is missing.' }
-          $text = Get-Content $cmake -Raw
-          $definition = 'add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)'
-          if ($text -notmatch '_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS') {
-            $anchor = 'add_subdirectory(' + [regex]::Escape('
-        working-directory: shared_app
-        env:
-          CONTROL_API_URL: ${{ vars.CONTROL_API_URL || 'https://102-production.up.railway.app' }}
-        run: |
-          flutter pub get
-          if (!(Test-Path 'windows/flutter/CMakeLists.txt')) { throw 'windows/flutter/CMakeLists.txt still missing.' }
-          # flutter_secure_storage_windows uses TCHAR together with wide strings.
-          # Its Windows plugin target must compile with the Unicode Win32 API.
-          $pluginCmake = Join-Path $env:LOCALAPPDATA 'Pub/Cache/hosted/pub.dev/flutter_secure_storage_windows-4.2.2/windows/CMakeLists.txt'
-          if (!(Test-Path $pluginCmake)) {
-            $pluginCmake = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Pub/Cache/hosted/pub.dev') -Directory -Filter 'flutter_secure_storage_windows-*' |
-              ForEach-Object { Join-Path $_.FullName 'windows/CMakeLists.txt' } |
-              Where-Object { Test-Path $_ } |
-              Select-Object -First 1
-          }
-          if (!$pluginCmake) { throw 'Could not locate flutter_secure_storage_windows CMakeLists.txt in Pub cache.' }
-          $cmakeText = Get-Content $pluginCmake -Raw
-          if ($cmakeText -notmatch 'target_compile_definitions\(\$\{PLUGIN_NAME\} PRIVATE FLUTTER_PLUGIN_IMPL UNICODE _UNICODE\)') {
-            $cmakeText = $cmakeText -replace 'target_compile_definitions\(\$\{PLUGIN_NAME\} PRIVATE FLUTTER_PLUGIN_IMPL\)', 'target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL UNICODE _UNICODE)'
-            if ($cmakeText -notmatch 'FLUTTER_PLUGIN_IMPL UNICODE _UNICODE') { throw 'Failed to apply Unicode compile definitions to secure storage plugin.' }
-            Set-Content -Path $pluginCmake -Value $cmakeText -NoNewline
-          }
-          Write-Host "Patched Unicode Win32 definitions in $pluginCmake"
-          flutter build windows --release --dart-define=CONTROL_API_URL="$env:CONTROL_API_URL"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Universal-Device-Agent-Windows
-          path: shared_app/build/windows/x64/runner/Release/
-          if-no-files-found: error
-
-  linux:
-    name: Linux / ChromeOS Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Extract uploaded source ZIP
-        run: unzip -oq Universal_Device_Agent_Railway_Connected.zip -d .
-      - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libglib2.0-dev libpipewire-0.3-dev libx11-dev libxtst-dev libturbojpeg0-dev libebook1.2-dev dpkg
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - name: Generate missing managed Linux CMake files safely
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f shared_app/pubspec.yaml
-          template="$RUNNER_TEMP/uda_linux_template"
-          rm -rf "$template"
-          flutter create --platforms=linux --org com.deviceagent --project-name shared_app "$template"
-          test -f "$template/linux/flutter/CMakeLists.txt"
-          rm -rf shared_app/linux/flutter
-          cp -a "$template/linux/flutter" shared_app/linux/flutter
-      - name: Build Linux release
-        working-directory: shared_app
-        env:
-          CONTROL_API_URL: ${{ vars.CONTROL_API_URL || 'https://102-production.up.railway.app' }}
-        run: |
-          flutter pub get
-          test -f linux/flutter/CMakeLists.txt
-          flutter build linux --release --dart-define=CONTROL_API_URL="$CONTROL_API_URL"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Universal-Device-Agent-Linux
-          path: shared_app/build/linux/x64/release/bundle/
-          if-no-files-found: error
-) + '\{FLUTTER_MANAGED_DIR\})'
-            if ($text -notmatch $anchor) { throw 'Could not find Flutter managed CMake subdirectory anchor.' }
-            $managed = 'add_subdirectory(' + '
-        working-directory: shared_app
-        env:
-          CONTROL_API_URL: ${{ vars.CONTROL_API_URL || 'https://102-production.up.railway.app' }}
-        run: |
-          flutter pub get
-          if (!(Test-Path 'windows/flutter/CMakeLists.txt')) { throw 'windows/flutter/CMakeLists.txt still missing.' }
-          # flutter_secure_storage_windows uses TCHAR together with wide strings.
-          # Its Windows plugin target must compile with the Unicode Win32 API.
-          $pluginCmake = Join-Path $env:LOCALAPPDATA 'Pub/Cache/hosted/pub.dev/flutter_secure_storage_windows-4.2.2/windows/CMakeLists.txt'
-          if (!(Test-Path $pluginCmake)) {
-            $pluginCmake = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Pub/Cache/hosted/pub.dev') -Directory -Filter 'flutter_secure_storage_windows-*' |
-              ForEach-Object { Join-Path $_.FullName 'windows/CMakeLists.txt' } |
-              Where-Object { Test-Path $_ } |
-              Select-Object -First 1
-          }
-          if (!$pluginCmake) { throw 'Could not locate flutter_secure_storage_windows CMakeLists.txt in Pub cache.' }
-          $cmakeText = Get-Content $pluginCmake -Raw
-          if ($cmakeText -notmatch 'target_compile_definitions\(\$\{PLUGIN_NAME\} PRIVATE FLUTTER_PLUGIN_IMPL UNICODE _UNICODE\)') {
-            $cmakeText = $cmakeText -replace 'target_compile_definitions\(\$\{PLUGIN_NAME\} PRIVATE FLUTTER_PLUGIN_IMPL\)', 'target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL UNICODE _UNICODE)'
-            if ($cmakeText -notmatch 'FLUTTER_PLUGIN_IMPL UNICODE _UNICODE') { throw 'Failed to apply Unicode compile definitions to secure storage plugin.' }
-            Set-Content -Path $pluginCmake -Value $cmakeText -NoNewline
-          }
-          Write-Host "Patched Unicode Win32 definitions in $pluginCmake"
-          flutter build windows --release --dart-define=CONTROL_API_URL="$env:CONTROL_API_URL"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Universal-Device-Agent-Windows
-          path: shared_app/build/windows/x64/runner/Release/
-          if-no-files-found: error
-
-  linux:
-    name: Linux / ChromeOS Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Extract uploaded source ZIP
-        run: unzip -oq Universal_Device_Agent_Railway_Connected.zip -d .
-      - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libglib2.0-dev libpipewire-0.3-dev libx11-dev libxtst-dev libturbojpeg0-dev libebook1.2-dev dpkg
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - name: Generate missing managed Linux CMake files safely
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f shared_app/pubspec.yaml
-          template="$RUNNER_TEMP/uda_linux_template"
-          rm -rf "$template"
-          flutter create --platforms=linux --org com.deviceagent --project-name shared_app "$template"
-          test -f "$template/linux/flutter/CMakeLists.txt"
-          rm -rf shared_app/linux/flutter
-          cp -a "$template/linux/flutter" shared_app/linux/flutter
-      - name: Build Linux release
-        working-directory: shared_app
-        env:
-          CONTROL_API_URL: ${{ vars.CONTROL_API_URL || 'https://102-production.up.railway.app' }}
-        run: |
-          flutter pub get
-          test -f linux/flutter/CMakeLists.txt
-          flutter build linux --release --dart-define=CONTROL_API_URL="$CONTROL_API_URL"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Universal-Device-Agent-Linux
-          path: shared_app/build/linux/x64/release/bundle/
-          if-no-files-found: error
- + '{FLUTTER_MANAGED_DIR})'
-            $replacement = $definition + [Environment]::NewLine + $managed
-            $text = [regex]::Replace($text, $anchor, $replacement, 1)
-            Set-Content -Path $cmake -Value $text -NoNewline
-          }
-          Write-Host 'MSVC STL1011 compatibility definition added.'
+          @'
+          from pathlib import Path
+          p = Path("shared_app/windows/CMakeLists.txt")
+          text = p.read_text(encoding="utf-8")
+          macro = "add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)"
+          anchor = "add_subdirectory(" + chr(36) + "{FLUTTER_MANAGED_DIR})"
+          if macro not in text:
+              if anchor not in text:
+                  raise SystemExit("Could not find Flutter managed CMake subdirectory anchor.")
+              text = text.replace(anchor, macro + "\n" + anchor, 1)
+              p.write_text(text, encoding="utf-8")
+          print("MSVC STL1011 compatibility definition added.")
+          '@ | python -
       - name: Build Windows release
         working-directory: shared_app
         env:
