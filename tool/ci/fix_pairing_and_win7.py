@@ -25,10 +25,6 @@ def main() -> None:
     text = text.replace("import '../platform_channels/platform_channel_bridge.dart';\n", "")
     text = text.replace("  final _pairingChannel = NativeCapabilityChannel(ChannelNames.pairing);\n", "")
     text = text.replace("  String? _pairingCode;\n", "")
-    text = text.replace(
-        "final Future<void> Function(String pairingCode, String deviceName) onPaired;",
-        "final Future<void> Function(String? pairingCode, String deviceName) onPaired;",
-    )
     start = text.find("  Future<void> _startPairing() async {")
     end = text.find("\n  Future<void> _continue() async {", start)
     if start >= 0 and end > start:
@@ -96,30 +92,6 @@ def main() -> None:
     screen.write_text(text, encoding="utf-8")
 
     api = ROOT / "lib/protocol/api_client.dart"
-    replace_once(
-        api,
-        """  Future<Map<String, dynamic>> pairDevice({
-    required String pairingCode,
-    required String deviceName,
-  }) async {
-    final res = await _http.post(
-      _u('/devices/pair'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'pairing_code': pairingCode,""",
-        """  Future<Map<String, dynamic>> pairDevice({
-    String? pairingCode,
-    required String deviceName,
-  }) async {
-    final code = pairingCode?.trim();
-    final res = await _http.post(
-      _u('/devices/pair'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        if (code != null && code.isNotEmpty) 'pairing_code': code,""",
-        "optional server pairing code payload",
-    )
-
     main = ROOT / "lib/main.dart"
     replace_once(
         main,
