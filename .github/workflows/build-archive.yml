@@ -47,7 +47,7 @@ jobs:
           text = p.read_text(encoding="utf-8")
           updated, count = re.subn(
               r"(?m)^distributionUrl=.*$",
-              "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.3-bin.zip",
+              "distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-bin.zip",
               text,
           )
           if count != 1:
@@ -122,6 +122,23 @@ jobs:
         run: |
           flutter pub get
           if (!(Test-Path 'windows/flutter/CMakeLists.txt')) { throw 'windows/flutter/CMakeLists.txt still missing.' }
+          # flutter_secure_storage_windows uses TCHAR together with wide strings.
+          # Its Windows plugin target must compile with the Unicode Win32 API.
+          $pluginCmake = Join-Path $env:LOCALAPPDATA 'Pub/Cache/hosted/pub.dev/flutter_secure_storage_windows-4.2.2/windows/CMakeLists.txt'
+          if (!(Test-Path $pluginCmake)) {
+            $pluginCmake = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Pub/Cache/hosted/pub.dev') -Directory -Filter 'flutter_secure_storage_windows-*' |
+              ForEach-Object { Join-Path $_.FullName 'windows/CMakeLists.txt' } |
+              Where-Object { Test-Path $_ } |
+              Select-Object -First 1
+          }
+          if (!$pluginCmake) { throw 'Could not locate flutter_secure_storage_windows CMakeLists.txt in Pub cache.' }
+          $cmakeText = Get-Content $pluginCmake -Raw
+          if ($cmakeText -notmatch 'target_compile_definitions\(\$\{PLUGIN_NAME\} PRIVATE FLUTTER_PLUGIN_IMPL UNICODE _UNICODE\)') {
+            $cmakeText = $cmakeText -replace 'target_compile_definitions\(\$\{PLUGIN_NAME\} PRIVATE FLUTTER_PLUGIN_IMPL\)', 'target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL UNICODE _UNICODE)'
+            if ($cmakeText -notmatch 'FLUTTER_PLUGIN_IMPL UNICODE _UNICODE') { throw 'Failed to apply Unicode compile definitions to secure storage plugin.' }
+            Set-Content -Path $pluginCmake -Value $cmakeText -NoNewline
+          }
+          Write-Host "Patched Unicode Win32 definitions in $pluginCmake"
           flutter build windows --release --dart-define=CONTROL_API_URL="$env:CONTROL_API_URL"
       - uses: actions/upload-artifact@v4
         with:
