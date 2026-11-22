@@ -128,11 +128,9 @@ def main() -> None:
     if args.windows7:
         theme = ROOT / "lib/theme/app_theme.dart"
         source = theme.read_text(encoding="utf-8")
-        updated = source.replace("CardThemeData(", "CardTheme(").replace(
-            "scheme.surfaceContainerLow", "scheme.surface"
-        )
-        if updated == source and ("CardTheme(" not in source or "scheme.surface" not in source):
-            raise SystemExit("Windows 7 theme compatibility patch did not match expected source")
+        updated = source.replace("scheme.surfaceContainerLow", "scheme.surface")
+        if updated == source and "scheme.surfaceContainerLow" in source:
+            raise SystemExit("Windows 7 surface color compatibility patch did not match expected source")
         theme.write_text(updated, encoding="utf-8")
         print("Applied Flutter 3.19 theme compatibility.")
 
