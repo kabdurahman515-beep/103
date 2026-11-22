@@ -21,16 +21,16 @@ def main() -> None:
 
     screen = ROOT / "lib/dashboard/pairing_screen.dart"
     text = screen.read_text(encoding="utf-8")
-    text = text.replace("import 'package:qr_flutter/qr_flutter.dart';\\n", "")
-    text = text.replace("import '../platform_channels/platform_channel_bridge.dart';\\n", "")
-    text = text.replace("  final _pairingChannel = NativeCapabilityChannel(ChannelNames.pairing);\\n", "")
-    text = text.replace("  String? _pairingCode;\\n", "")
+    text = text.replace("import 'package:qr_flutter/qr_flutter.dart';\n", "")
+    text = text.replace("import '../platform_channels/platform_channel_bridge.dart';\n", "")
+    text = text.replace("  final _pairingChannel = NativeCapabilityChannel(ChannelNames.pairing);\n", "")
+    text = text.replace("  String? _pairingCode;\n", "")
     text = text.replace(
         "final Future<void> Function(String pairingCode, String deviceName) onPaired;",
         "final Future<void> Function(String? pairingCode, String deviceName) onPaired;",
     )
     start = text.find("  Future<void> _startPairing() async {")
-    end = text.find("\\n  Future<void> _continue() async {", start)
+    end = text.find("\n  Future<void> _continue() async {", start)
     if start >= 0 and end > start:
         text = text[:start] + """  // Pairing credentials are issued by the server, never generated locally.
   Future<void> _startPairing() async {
@@ -44,8 +44,8 @@ def main() -> None:
     elif "Pairing credentials are issued by the server" not in text:
         raise SystemExit("Could not safely replace the native pairing-code call")
     text = text.replace(
-        "    final generated = _pairingCode;\\n    final serverCode = _serverCodeController.text.trim();\\n    // Server code diya ho to wahi bhejte hain; warna purana (legacy) flow.\\n    final code = serverCode.isNotEmpty ? serverCode : generated;",
-        "    final serverCode = _serverCodeController.text.trim();\\n    final String? code = serverCode.isEmpty ? null : serverCode;",
+        "    final generated = _pairingCode;\n    final serverCode = _serverCodeController.text.trim();\n    // Server code diya ho to wahi bhejte hain; warna purana (legacy) flow.\n    final code = serverCode.isNotEmpty ? serverCode : generated;",
+        "    final serverCode = _serverCodeController.text.trim();\n    final String? code = serverCode.isEmpty ? null : serverCode;",
     )
     text = text.replace("    if (code == null || _pairing) return;", "    if (_pairing) return;")
     text = text.replace(
