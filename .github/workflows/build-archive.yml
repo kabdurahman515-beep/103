@@ -78,6 +78,58 @@ jobs:
                   candidate.unlink()
           print("Verified: manifest launches com.deviceagent.app.MainActivity and registers ChannelRegistrar.")
           PY
+      - name: Separate device state from live agent connection in app UI
+        working-directory: shared_app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          model = Path("lib/protocol/device_status.dart")
+          s = model.read_text(encoding="utf-8")
+          if "final bool agentConnected;" not in s:
+              old = "  final bool backgroundActive;\n"
+              if old not in s:
+                  raise SystemExit("DeviceStatus backgroundActive field not found")
+              s = s.replace(old, old + "  final bool agentConnected;\n", 1)
+              old = "    required this.backgroundActive,\n"
+              if old not in s:
+                  raise SystemExit("DeviceStatus constructor field not found")
+              s = s.replace(old, old + "    this.agentConnected = false,\n", 1)
+              old = "        backgroundActive: json['background_active'] as bool? ?? false,\n"
+              if old not in s:
+                  raise SystemExit("DeviceStatus JSON mapping not found")
+              s = s.replace(old, old + "        agentConnected: json['agent_connected'] as bool? ?? false,\n", 1)
+              model.write_text(s, encoding="utf-8")
+
+          status_screen = Path("lib/dashboard/device_status_screen.dart")
+          s = status_screen.read_text(encoding="utf-8")
+          old = """    final agentConnected = st.state != DeviceState.offline &&
+                st.state != DeviceState.poweredOff;"""
+          if old in s:
+              s = s.replace(old, "    final agentConnected = st.agentConnected;", 1)
+              status_screen.write_text(s, encoding="utf-8")
+          elif "final agentConnected = st.agentConnected;" not in s:
+              raise SystemExit("Device Status live-agent indicator pattern not found")
+
+          bg = Path("lib/task_monitor/background_tasks_screen.dart")
+          s = bg.read_text(encoding="utf-8")
+          old = """                      subtitle: Text(canRunBackground
+                          ? 'Background-capable actions available '
+                              '(notifications, keepalive)'
+                          : 'Background automation not available in this state'),"""
+          new = """                      subtitle: Text(
+                        'Agent connection: ${_status?.agentConnected == true ? 'Connected' : 'Disconnected'}\\n'
+                        + (canRunBackground
+                            ? 'Background-capable actions available (notifications, keepalive)'
+                            : 'Background automation not available in this state'),
+                      ),"""
+          if old in s:
+              s = s.replace(old, new, 1)
+              bg.write_text(s, encoding="utf-8")
+          elif "Agent connection:" not in s:
+              raise SystemExit("Background Tasks connection label pattern not found")
+          print("App UI now shows device state and live server connection separately.")
+          PY
       - name: Patch Android manifest and DocumentFile dependency
         working-directory: shared_app
         run: |
