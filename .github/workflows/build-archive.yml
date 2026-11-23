@@ -109,21 +109,20 @@ jobs:
 
           bg = Path("lib/task_monitor/background_tasks_screen.dart")
           s = bg.read_text(encoding="utf-8")
-          old = """                      subtitle: Text(canRunBackground
-                          ? 'Background-capable actions available '
-                              '(notifications, keepalive)'
-                          : 'Background automation not available in this state'),"""
-          new = """                      subtitle: Text(
+          marker = "                      subtitle: Text(canRunBackground"
+          if marker in s:
+              start = s.index(marker)
+              end = s.index("\n                    ),", start)
+              replacement = """                      subtitle: Text(
                         'Agent connection: ${_status?.agentConnected == true ? 'Connected' : 'Disconnected'}\\n'
                         + (canRunBackground
                             ? 'Background-capable actions available (notifications, keepalive)'
                             : 'Background automation not available in this state'),
                       ),"""
-          if old in s:
-              s = s.replace(old, new, 1)
+              s = s[:start] + replacement + s[end:]
               bg.write_text(s, encoding="utf-8")
           elif "Agent connection:" not in s:
-              raise SystemExit("Background Tasks connection label pattern not found")
+              raise SystemExit("Background Tasks subtitle anchor not found")
           print("App UI now shows device state and live server connection separately.")
           PY
       - name: Patch Android manifest and DocumentFile dependency
