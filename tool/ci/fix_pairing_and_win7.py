@@ -286,6 +286,63 @@ class _ApprovalWaitingScreenState extends State<ApprovalWaitingScreen> {
     api.write_text(source, encoding="utf-8")
     print("Added dedicated approval status screen; name form no longer shows an endless spinner.")
 
+
+def patch_android_initial_screen_frame() -> None:
+    """Send the already-held Android frame immediately when Watch Live starts.
+
+    ImageReader may not emit another callback while the display is static.
+    Without this initial frame, the browser opens its WebSocket but shows a
+    blank canvas until the phone screen changes.
+    """
+    service = ROOT / "android/app/src/main/kotlin/com/deviceagent/app/ScreenCaptureService.kt"
+    source = service.read_text(encoding="utf-8")
+    old = """        streamCallback = onFrame
+        lastStreamAt = 0L
+        streaming = true
+        imageReader?.setOnImageAvailableListener(streamListener, frameHandler)
+"""
+    new = """        streamCallback = onFrame
+        lastStreamAt = 0L
+        streaming = true
+        imageReader?.setOnImageAvailableListener(streamListener, frameHandler)
+
+        // ImageReader does not guarantee another callback for a static display.
+        // Replay the most recently held image once so the website gets an
+        // immediate first frame; skip it if a newer live frame won the race.
+        frameHandler?.post {
+            if (!streaming || released || lastStreamAt != 0L) return@post
+            val initialBitmap = synchronized(heldLock) {
+                val image = heldImage
+                if (image == null) null else try {
+                    imageToBitmap(image)
+                } catch (_: Exception) {
+                    null
+                }
+            } ?: return@post
+            try {
+                val scaled = downscale(initialBitmap)
+                try {
+                    val out = ByteArrayOutputStream()
+                    scaled.compress(Bitmap.CompressFormat.JPEG, streamJpegQuality, out)
+                    streamCallback?.invoke(out.toByteArray())
+                    lastStreamAt = SystemClock.elapsedRealtime()
+                } finally {
+                    if (scaled !== initialBitmap) scaled.recycle()
+                }
+            } finally {
+                initialBitmap.recycle()
+            }
+        }
+"""
+    if "Replay the most recently held image once" in source:
+        print("Android initial screen-frame patch already applied.")
+        return
+    if old not in source:
+        raise SystemExit("Could not find the expected ScreenCaptureService.startStreaming block; refusing an unsafe patch.")
+    source = source.replace(old, new, 1)
+    service.write_text(source, encoding="utf-8")
+    print("Patched Android live screen to send the held first frame immediately.")
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--windows7", action="store_true")
@@ -308,6 +365,7 @@ def main() -> None:
     print("Verified website-approval pairing flow; legacy pairing-code patch skipped.")
     patch_pairing_network_retries()
     patch_approval_waiting_screen()
+    patch_android_initial_screen_frame()
 
     theme = ROOT / "lib/theme/app_theme.dart"
     source = theme.read_text(encoding="utf-8")
