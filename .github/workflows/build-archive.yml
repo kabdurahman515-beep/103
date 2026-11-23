@@ -39,6 +39,80 @@ jobs:
           # Remove legacy Groovy files shipped in the source archive.
           rm -f android/settings.gradle android/build.gradle android/app/build.gradle
           rm -rf android/app/src/main/kotlin/com/example
+      - name: Restore custom Android package and native channel host
+        working-directory: shared_app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          gradle = Path("android/app/build.gradle.kts")
+          text = gradle.read_text(encoding="utf-8")
+          for key in ("namespace", "applicationId"):
+              pattern = rf'(?m)^(\\s*{key}\\s*=\\s*)["\\'][^"\\']+["\\']'
+              updated, count = re.subn(pattern, rf'\\g<1>"com.deviceagent.app"', text)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one generated {key}, found {count}")
+              text = updated
+          gradle.write_text(text, encoding="utf-8")
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          m = manifest.read_text(encoding="utf-8")
+          m = re.sub(r'\\s+package="[^"]+"', "", m, count=1)
+          m, count = re.subn(r'android:name="\\.MainActivity"', 'android:name="com.deviceagent.app.MainActivity"', m, count=1)
+          if count != 1:
+              raise SystemExit("Could not bind manifest to the custom MainActivity")
+          manifest.write_text(m, encoding="utf-8")
+
+          custom = Path("android/app/src/main/kotlin/com/deviceagent/app/MainActivity.kt")
+          registrar = Path("android/app/src/main/kotlin/com/deviceagent/app/ChannelRegistrar.kt")
+          if not custom.is_file() or not registrar.is_file():
+              raise SystemExit("Custom MainActivity/ChannelRegistrar missing from source archive")
+          if "registrar.registerAll(flutterEngine)" not in custom.read_text(encoding="utf-8"):
+              raise SystemExit("Custom MainActivity does not register native platform channels")
+
+          # flutter create generates a template MainActivity for the new
+          # project-name package. Remove it so Android cannot launch the
+          # template activity instead of our channel-registering activity.
+          for candidate in Path("android/app/src/main/kotlin").rglob("MainActivity.kt"):
+              if candidate.resolve() != custom.resolve():
+                  candidate.unlink()
+          print("Android namespace/applicationId and manifest now target com.deviceagent.app; custom channels will register.")
+
+          # Keep device-state and live-agent connection as two separate facts.
+          model = Path("lib/protocol/device_status.dart")
+          s = model.read_text(encoding="utf-8")
+          if "final bool agentConnected;" not in s:
+              s = s.replace("  final bool backgroundActive;\n", "  final bool backgroundActive;\n  final bool agentConnected;\n", 1)
+              s = s.replace("    required this.backgroundActive,\n", "    required this.backgroundActive,\n    this.agentConnected = false,\n", 1)
+              s = s.replace("        backgroundActive: json['background_active'] as bool? ?? false,\n", "        backgroundActive: json['background_active'] as bool? ?? false,\n        agentConnected: json['agent_connected'] as bool? ?? false,\n", 1)
+              model.write_text(s, encoding="utf-8")
+
+          status_screen = Path("lib/dashboard/device_status_screen.dart")
+          s = status_screen.read_text(encoding="utf-8")
+          old = "    final agentConnected = st.state != DeviceState.offline &&\\n        st.state != DeviceState.poweredOff;"
+          if old in s:
+              s = s.replace(old, "    final agentConnected = st.agentConnected;", 1)
+              status_screen.write_text(s, encoding="utf-8")
+          elif "final agentConnected = st.agentConnected;" not in s:
+              raise SystemExit("Could not update Device Status live-agent indicator")
+
+          bg = Path("lib/task_monitor/background_tasks_screen.dart")
+          s = bg.read_text(encoding="utf-8")
+          old = "                      subtitle: Text(canRunBackground\\n                          ? 'Background-capable actions available '\\n                              '(notifications, keepalive)'\\n                          : 'Background automation not available in this state'),"
+          new = """                      subtitle: Text(
+                        'Agent connection: ${_status?.agentConnected == true ? 'Connected' : 'Disconnected'}\\n'
+                        + (canRunBackground
+                            ? 'Background-capable actions available (notifications, keepalive)'
+                            : 'Background automation not available in this state'),
+                      ),"""
+          if old in s:
+              s = s.replace(old, new, 1)
+              bg.write_text(s, encoding="utf-8")
+          elif "Agent connection:" not in s:
+              raise SystemExit("Could not add the live-agent connection indicator to Background Tasks")
+          print("Device Status and Background Tasks now show the actual WebSocket connection separately.")
+          PY
       - name: Patch Android manifest and DocumentFile dependency
         working-directory: shared_app
         run: |
