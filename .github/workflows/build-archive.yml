@@ -88,23 +88,19 @@ jobs:
           s = model.read_text(encoding="utf-8")
           if "final bool agentConnected;" not in s:
               old = "  final bool backgroundActive;\n"
-              if old not in s:
-                  raise SystemExit("DeviceStatus backgroundActive field not found")
+              if old not in s: raise SystemExit("DeviceStatus field missing")
               s = s.replace(old, old + "  final bool agentConnected;\n", 1)
               old = "    required this.backgroundActive,\n"
-              if old not in s:
-                  raise SystemExit("DeviceStatus constructor field not found")
+              if old not in s: raise SystemExit("DeviceStatus constructor field missing")
               s = s.replace(old, old + "    this.agentConnected = false,\n", 1)
               old = "        backgroundActive: json['background_active'] as bool? ?? false,\n"
-              if old not in s:
-                  raise SystemExit("DeviceStatus JSON mapping not found")
+              if old not in s: raise SystemExit("DeviceStatus JSON field missing")
               s = s.replace(old, old + "        agentConnected: json['agent_connected'] as bool? ?? false,\n", 1)
               model.write_text(s, encoding="utf-8")
 
           status_screen = Path("lib/dashboard/device_status_screen.dart")
           s = status_screen.read_text(encoding="utf-8")
-          old = """    final agentConnected = st.state != DeviceState.offline &&
-                st.state != DeviceState.poweredOff;"""
+          old = "    final agentConnected = st.state != DeviceState.offline &&\n        st.state != DeviceState.poweredOff;"
           if old in s:
               s = s.replace(old, "    final agentConnected = st.agentConnected;", 1)
               status_screen.write_text(s, encoding="utf-8")
