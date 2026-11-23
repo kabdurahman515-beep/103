@@ -80,6 +80,212 @@ def patch_pairing_network_retries() -> None:
         raise SystemExit("Could not find the expected approval polling loop in api_client.dart")
 
 
+
+
+def patch_approval_waiting_screen() -> None:
+    """Move approval polling to a dedicated status page after request submission."""
+    screen = ROOT / "lib/dashboard/pairing_screen.dart"
+    source = screen.read_text(encoding="utf-8")
+    old_signature = "final Future<void> Function(String deviceName) onPaired;"
+    new_signature = "final Future<void> Function(String deviceName, VoidCallback onRequestSent) onPaired;"
+    if old_signature in source:
+        source = source.replace(old_signature, new_signature, 1)
+    elif new_signature not in source:
+        raise SystemExit("Could not find PairingScreen onPaired callback signature.")
+
+    old_continue = """    try {
+      await widget.onPaired(name);
+    } finally {
+      if (mounted) setState(() => _pairing = false);
+    }
+"""
+    new_continue = """    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => ApprovalWaitingScreen(
+            onPaired: (onRequestSent) => widget.onPaired(name, onRequestSent),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _pairing = false);
+    }
+"""
+    if old_continue in source:
+        source = source.replace(old_continue, new_continue, 1)
+    elif "ApprovalWaitingScreen(" not in source:
+        raise SystemExit("Could not find PairingScreen submit handler.")
+
+    if "class ApprovalWaitingScreen" not in source:
+        source += r'''
+
+/// Separate page for the website-owner approval process. The server polling
+/// continues quietly; the user does not remain on the device-name form.
+class ApprovalWaitingScreen extends StatefulWidget {
+  final Future<void> Function(VoidCallback onRequestSent) onPaired;
+
+  const ApprovalWaitingScreen({super.key, required this.onPaired});
+
+  @override
+  State<ApprovalWaitingScreen> createState() => _ApprovalWaitingScreenState();
+}
+
+class _ApprovalWaitingScreenState extends State<ApprovalWaitingScreen> {
+  bool _requestSent = false;
+  bool _submitting = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _submit());
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) return;
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      await widget.onPaired(() {
+        if (mounted) setState(() => _requestSent = true);
+      });
+      if (mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Approval Status')),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _error == null ? Icons.mark_email_read_outlined : Icons.error_outline,
+                  size: 76,
+                  color: _error == null ? colors.primary : colors.error,
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  _error != null
+                      ? 'Request send nahi ho saki'
+                      : _requestSent ? 'Request received' : 'Sending approval request',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  _error != null
+                      ? _error!
+                      : _requestSent
+                          ? 'Aapki approval request website owner tak pahunch gayi hai.'
+                          : 'Aapki request website par bheji ja rahi hai. Thora intezar karein.',
+                  textAlign: TextAlign.center,
+                ),
+                if (_error == null) ...[
+                  const SizedBox(height: 26),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.hourglass_top, color: colors.primary),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Waiting for owner approval',
+                                    style: TextStyle(fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 6),
+                                Text(_requestSent
+                                    ? 'Owner approve karega to device automatically connect ho jayega.'
+                                    : 'Request submit hote hi approval status yahan dikhai dega.'),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+                if (_error != null) ...[
+                  const SizedBox(height: 20),
+                  FilledButton(onPressed: _submit, child: const Text('Retry request')),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Back to device name'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+'''
+    screen.write_text(source, encoding="utf-8")
+
+    main = ROOT / "lib/main.dart"
+    source = main.read_text(encoding="utf-8")
+    old_main_signature = "Future<void> _onPaired(String deviceName) async {"
+    new_main_signature = "Future<void> _onPaired(String deviceName, VoidCallback onRequestSent) async {"
+    if old_main_signature in source:
+        source = source.replace(old_main_signature, new_main_signature, 1)
+    elif new_main_signature not in source:
+        raise SystemExit("Could not find main pairing callback.")
+
+    old_call = """        deviceName: deviceName,
+      );"""
+    new_call = """        deviceName: deviceName,
+        onRequestSent: onRequestSent,
+      );"""
+    if old_call in source:
+        source = source.replace(old_call, new_call, 1)
+    elif "onRequestSent: onRequestSent" not in source:
+        raise SystemExit("Could not find pairDevice call in main.dart.")
+
+    old_catch = """    } catch (e) {
+      if (!mounted) return;
+      setState(() => _pairingError = 'Pairing server se connect nahi ho saka: $e');
+    } finally {
+"""
+    if old_catch in source:
+        source = source.replace(old_catch, "    } finally {\n", 1)
+    main.write_text(source, encoding="utf-8")
+
+    api = ROOT / "lib/protocol/api_client.dart"
+    source = api.read_text(encoding="utf-8")
+    old_api_signature = "Future<Map<String, dynamic>> pairDevice({required String deviceName}) async {"
+    new_api_signature = "Future<Map<String, dynamic>> pairDevice({required String deviceName, void Function()? onRequestSent}) async {"
+    if old_api_signature in source:
+        source = source.replace(old_api_signature, new_api_signature, 1)
+    elif new_api_signature not in source:
+        raise SystemExit("Could not find pairDevice API signature.")
+
+    marker = "    final pollSecret = reg['poll_secret'] as String;\n"
+    if marker in source:
+        source = source.replace(marker, marker + "    onRequestSent?.call();\n", 1)
+    elif "onRequestSent?.call();" not in source:
+        raise SystemExit("Could not find server registration accepted marker.")
+    api.write_text(source, encoding="utf-8")
+    print("Added dedicated approval status screen; name form no longer shows an endless spinner.")
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--windows7", action="store_true")
@@ -101,6 +307,7 @@ def main() -> None:
         raise SystemExit("Approval callback signature validation failed")
     print("Verified website-approval pairing flow; legacy pairing-code patch skipped.")
     patch_pairing_network_retries()
+    patch_approval_waiting_screen()
 
     theme = ROOT / "lib/theme/app_theme.dart"
     source = theme.read_text(encoding="utf-8")
